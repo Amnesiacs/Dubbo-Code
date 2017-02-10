@@ -1,0 +1,140 @@
+<!DOCTYPE html><html><head><title>Dubbo源码解析 — 服务的创建和暴露</title><meta charset='utf-8'><link href='https://dn-maxiang.qbox.me/res-min/themes/marxico.css' rel='stylesheet'><style></style></head><body><div id='preview-contents' class='note-content'>
+                        
+                    
+
+
+
+<h2 id="dubbo源码解析-服务的创建和暴露">Dubbo源码解析 — 服务的创建和暴露</h2>
+
+<hr>
+
+
+
+<h5 id="前言">前言</h5>
+
+<p>本文主要就dubbo基础的XML解析开始，到服务的创建和发布，最终延展到底层netty的调用，给出一个初始化流程的解读。<br> <br>
+在这里你能看到dubbo一些优秀的抽象设计，以及底层源代码的解读。如有语义不明，联系紫苑。或者邮件<a href="http://ziyuan@2dfire.com" target="_blank">ziyuan@2dfire.com</a>。<br></p>
+
+
+
+<h5 id="service和server">service和server<br></h5>
+
+<p>首先，当发布一个服务的Server时，我们需要编写一个Spring配置文件，形如以下：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs nimrod">&lt;beans xmlns=<span class="hljs-string">"..."</span>&gt;<br>    &lt;dubbo:application name=<span class="hljs-string">"hello-world-app"</span> /&gt;<br>    &lt;dubbo:protocol name=<span class="hljs-string">"dubbo"</span> port=<span class="hljs-string">"20880"</span> /&gt;<br>    &lt;dubbo:service <span class="hljs-keyword">interface</span>=<span class="hljs-string">"net.beamlight.dubbo.service.DemoService"</span> <span class="hljs-keyword">ref</span>=<span class="hljs-string">"demoService"</span> registry=<span class="hljs-string">"..."</span> /&gt;<br>    &lt;bean id=<span class="hljs-string">"demoService"</span> class=<span class="hljs-string">"net.beamlight.dubbo.provider.DemoServiceImpl"</span> /&gt;<br>&lt;/beans&gt;<br></code></pre>
+
+<p>其中关键的一行为<strong>&lt;dubbo:service …&gt;</strong>，这里使用了扩展的<strong>Spring Schema</strong>，相关定义在jar包META-INF目录下的<strong>spring.handlers</strong>、<strong>spring.schemas</strong>、<strong>dubbo.xsd</strong>中。解析器为<strong><em>com.alibaba.dubbo.config.spring.schema.DubboNamespaceHandler</em></strong>，所以它也就成了启动provider的“应用程序入口”。<br> <br>
+而我们观察这个NamespaceHandler的代码，非常的简短，这里就不贴了。实际就重写了<strong>NamespaceHandlerSupport</strong>的<strong>init</strong>方法，注册了一些<strong>BeanDefinitionParser</strong>，而读过spring源码的人都应该了解，spring的启动流程：先根据xml生成beanDefinition，然后再根据beanDefinition生成Bean并放到一个concurentHashMap中。那么我们直接看DubboNamespaceHandler中注册的DubboBeanDefinitionParser，这里有这么一行代码：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs actionscript">registerBeanDefinitionParser(<span class="hljs-string">"service"</span>, <span class="hljs-keyword">new</span> DubboBeanDefinitionParser(ServiceBean.<span class="hljs-keyword">class</span>, <span class="hljs-literal">true</span>));<br></code></pre>
+
+<p>DubboBeanDefinitionParser中主要做了一些BeanDefinition的初始化，我们跳过直接看<strong>ServiceBean</strong>。<br> <br>
+同样我们省略一些初始化（这里其实是初始化了一些config，比如protocolConfig、monitorConfig等等，具体细节查看源码），在初始化的最后我们找到了这么几行代码：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs gcode"><span class="hljs-comment">/* 省略一些初始化操作 */</span><br><span class="hljs-keyword">if</span> <span class="hljs-comment">(!isDelay()</span>) {<br>    export<span class="hljs-comment">()</span>;<br>}<br></code></pre>
+
+<p>export即为我们的发布操作，二话不说点进去。<br> <br>
+export是ServiceConfig中的方法，而ServiceBean继承自ServiceConfig（这个地方的抽象是不是有点不太合适？思考中…），在export中我们看到了这么几个现象：</p>
+
+<ol start="1"><li rel="1">delay的使用：<br></li>
+</ol>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs lasso"><span class="hljs-keyword">if</span> (delay != <span class="hljs-built_in">null</span> <span class="hljs-subst">&amp;&amp;</span> delay &gt; <span class="hljs-number">0</span>) {<br>    <span class="hljs-keyword">Thread</span> <span class="hljs-keyword">thread</span> = <span class="hljs-literal">new</span> <span class="hljs-keyword">Thread</span>(<span class="hljs-literal">new</span> Runnable() {<br>        <span class="hljs-keyword">public</span> <span class="hljs-literal">void</span> run() {<br>            try {<br>                <span class="hljs-keyword">Thread</span><span class="hljs-built_in">.</span>sleep(delay);<br>            } catch (Throwable e) {<br>                <span class="hljs-comment">//我们看到这里是直接ignore掉了</span><br>            }<br>                doExport();<br>            }<br>        });<br>    <span class="hljs-keyword">thread</span><span class="hljs-built_in">.</span>setDaemon(<span class="hljs-literal">true</span>);<br>    <span class="hljs-keyword">thread</span><span class="hljs-built_in">.</span>setName(<span class="hljs-string">"DelayExportServiceThread"</span>);<br>    <span class="hljs-keyword">thread</span><span class="hljs-built_in">.</span>start();<br>} <br></code></pre>
+
+<p>我们发现，delay的作用就是<strong><em>延迟暴露</em></strong>，而延迟的方式也很直截了当，<strong>Thread.sleep(delay)</strong>，另外一个比较有意思的就是我们可以看到，延迟暴露的服务是通过守护线程发布的，而守护线程的优先级比较低，这里的设计是不是有何用意，有兴趣的同学可以细究一下或者有知道的告诉我一下。<br></p>
+
+<ol start="2"><li rel="2"><strong>export是synchronized修饰的方法</strong>。也就是说暴露的过程是原子操作，正常情况下不会出现锁竞争的问题，毕竟初始化过程大多数情况下都是单一线程操作，这里联想到了spring的初始化流程，也进行了加锁操作，这里也给我们平时设计一个不错的启示：<strong>初始化流程的性能调优优先级应该放的比较低，但是安全的优先级应该放的比较高！</strong><br> <br>
+继续看doExport()方法。同样是一堆初始化代码，这里我们看到了如果provider已经存在（provider != null）的情况下，我们之前说过的初始化的monitorConfig、moudleConfig中的一些配置是不会生效的（protocol、monitor等属性），而是直接从已有的provider中获取的，而provider的初始化是在serviceBean中，根据：</li>
+</ol>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs dart"><span class="hljs-comment">//如果上下文已经存在的情况下，从上下文中获取providers</span><br><span class="hljs-built_in">Map</span>&lt;<span class="hljs-built_in">String</span>, ProviderConfig&gt; providerConfigMap =  applicationContext == <span class="hljs-keyword">null</span> ? <span class="hljs-keyword">null</span>  : BeanFactoryUtils.beansOfTypeIncludingAncestors(applicationContext, ProviderConfig.<span class="hljs-keyword">class</span>, <span class="hljs-keyword">false</span>, <span class="hljs-keyword">false</span>);<br><br>...<br><br>ProviderConfig providerConfig = <span class="hljs-keyword">null</span>;<br><span class="hljs-keyword">for</span> (ProviderConfig config : providerConfigMap.values()) {<br>    <span class="hljs-keyword">if</span> (config.isDefault() == <span class="hljs-keyword">null</span> || config.isDefault().booleanValue()) {<br>        <span class="hljs-keyword">if</span> (providerConfig != <span class="hljs-keyword">null</span>) {<br>            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalStateException(<span class="hljs-string">"Duplicate provider configs: "</span> + providerConfig + <span class="hljs-string">" and "</span> + config);<br>        }<br>        providerConfig = config;<br>    }<br>}<br><span class="hljs-keyword">if</span> (providerConfig != <span class="hljs-keyword">null</span>) {<br>    <span class="hljs-comment">//这里的setProvider方法继承自ServiceConfig</span><br>    setProvider(providerConfig);<br>}<br><br></code></pre>
+
+<p>获得。<br></p>
+
+
+
+<h5 id="export过程">export过程<br></h5>
+
+<p>继续看doExport()，最终会调用到doExportUrls()中：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs dart"><span class="hljs-comment">//DUBBO框架整体是基于URL为总线的方式来达到各个模块之间的动态加载，这里也有体现，后面我们在dubbo的插件化中会特别讲解</span><br><span class="hljs-built_in">List</span>&lt;URL&gt; registryURLs = loadRegistries(<span class="hljs-keyword">true</span>);<br><span class="hljs-keyword">for</span> (ProtocolConfig protocolConfig : protocols) {<br>    doExportUrlsFor1Protocol(protocolConfig, registryURLs);<br>}<br></code></pre>
+
+<p>继续看doExportUrlsFor1Protocol()方法之前，我们会发现，实际上发布服务的是protocol，这里的抽象做的也很精彩，毕竟各个protocol的内容大不相同，protocol后面还会讲解，默认的protocol是dubboProtol。我们会看到如下语句：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs nimrod">...<br>    <span class="hljs-type">Invoker</span>&lt;?&gt; invoker = proxyFactory.getInvoker(<span class="hljs-keyword">ref</span>, (<span class="hljs-type">Class</span>)interfaceClass, url);<br><span class="hljs-type">Exporter</span>&lt;?&gt; exporter = protocol.<span class="hljs-keyword">export</span>(invoker);<br>exporters.add(exporter);<br>...<br></code></pre>
+
+<p>这里我们会发现：<br></p>
+
+<ol><li rel="1">dubbo的比较核心的抽象之一：<strong>Invoker</strong>。<br></li>
+<li rel="2"><strong>invoke实际上是一个代理类</strong>，从proxyFactory（默认为javassist的proxyFactory）中生成。<br></li>
+</ol>
+
+<p>这里我们也做一个小总结，各个dubbo组件的作用：<br></p>
+
+<ul><li>Invoker – 执行具体的远程调用</li>
+<li>Protocol – 服务地址的发布和订阅</li>
+<li>Exporter – 暴露服务或取消暴露 <br>
+<br></li>
+</ul>
+
+
+
+<h5 id="protocol发布服务">protocol发布服务</h5>
+
+<p>我们看一下dubboProtocol的export方法：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs lasso"><span class="hljs-attribute">...</span><br>openServer(url);<br><span class="hljs-attribute">...</span><br></code></pre>
+
+<p>省略一些步骤和判断，直接看openServer：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs axapta">...<br>ExchangeServer <span class="hljs-keyword">server</span> = serverMap.get(key);<br><span class="hljs-keyword">if</span> (<span class="hljs-keyword">server</span> == <span class="hljs-keyword">null</span>) {<br>    serverMap.put(key, createServer(url));<br>} <span class="hljs-keyword">else</span> {<br>    <span class="hljs-comment">//server支持reset,配合override功能使用</span><br>    <span class="hljs-keyword">server</span>.reset(url);<br>}<br></code></pre>
+
+<p>继续看其中的createServer方法：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs axapta"><span class="hljs-comment">//requestHandler包含通信协议的主要处理逻辑</span><br><span class="hljs-keyword">private</span> ExchangeHandler requestHandler = <span class="hljs-keyword">new</span> ExchangeHandlerAdapter(){<br>    ...<br>};<br><br>...<br><br>ExchangeServer <span class="hljs-keyword">server</span>;<br><span class="hljs-keyword">try</span> {<br>    <span class="hljs-keyword">server</span> = Exchangers.bind(url, requestHandler);<br>} <span class="hljs-keyword">catch</span> (RemotingException e) {<br>    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> RpcException(<span class="hljs-string">"Fail to start server(url: "</span> + url + <span class="hljs-string">") "</span> + e.getMessage(), e);<br>}<br></code></pre>
+
+<p>发现<strong>ExchangeServer是通过Exchangers</strong>创建的，直接看bind方法：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs less">...<br><span class="hljs-tag">getExchanger</span>(url)<span class="hljs-class">.bind</span>(url, handler);<br>...<br></code></pre>
+
+<p>getExchanger方法实际上调用的是<strong>ExtensionLoader</strong>的相关方法，这里的ExtensionLoader是dubbo插件化的核心，我们会在后面的插件化讲解中详细讲解，这里我们只需要知道Exchanger的默认实现只有一个：HeaderExchanger。上面一段代码最终调用的是：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs aspectj"><span class="hljs-keyword">public</span> <span class="hljs-function">ExchangeServer <span class="hljs-title">bind</span><span class="hljs-params">(URL url, ExchangeHandler <span class="hljs-keyword">handler</span>)</span> <span class="hljs-keyword">throws</span> RemotingException </span>{<br>    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> HeaderExchangeServer(Transporters.bind(url, <span class="hljs-keyword">new</span> DecodeHandler(<span class="hljs-keyword">new</span> HeaderExchangeHandler(<span class="hljs-keyword">handler</span>))));<br>}<br></code></pre>
+
+<p>可以看到Server与Client实例均是在这里创建的，HeaderExchangeServer需要一个Server类型的参数，来自Transporters.bind()：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs aspectj"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-function">Server <span class="hljs-title">bind</span><span class="hljs-params">(URL url, ChannelHandler... handlers)</span> <span class="hljs-keyword">throws</span> RemotingException </span>{<br>    ...<br>    <span class="hljs-keyword">return</span> getTransporter().bind(url, <span class="hljs-keyword">handler</span>);<br>}<br></code></pre>
+
+<p>getTransporter()获取的实例来源于配置，默认返回一个NettyTransporter：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs aspectj"><span class="hljs-keyword">public</span> <span class="hljs-function">Server <span class="hljs-title">bind</span><span class="hljs-params">(URL url, ChannelHandler listener)</span> <span class="hljs-keyword">throws</span> RemotingException </span>{<br>    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> NettyServer(url, listener);<br>}<br></code></pre>
+
+<p>最终来到了NettyServer，在它的doOpen()方法中看到了我们熟悉的Netty Bootstrap~~，至此，我们一个provider的注册完成，<strong>可以看到底层dubbo的默认实现时netty</strong>。</p></div></body></html>
