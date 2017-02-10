@@ -14,7 +14,7 @@
     <dubbo:protocol name="dubbo" port="20880" />
     <dubbo:service interface="net.beamlight.dubbo.service.DemoService" ref="demoService" registry="..." />
     <bean id="demoService" class="net.beamlight.dubbo.provider.DemoServiceImpl" />
-	</beans>
+</beans>
 ```
 其中关键的一行为**<dubbo:service …>**，这里使用了扩展的**Spring Schema**，相关定义在jar包META-INF目录下的**spring.handlers**、**spring.schemas**、**dubbo.xsd**中。解析器为***com.alibaba.dubbo.config.spring.schema.DubboNamespaceHandler***，所以它也就成了启动provider的“应用程序入口”。<br/>
 而我们观察这个NamespaceHandler的代码，非常的简短，这里就不贴了。实际就重写了**NamespaceHandlerSupport**的**init**方法，注册了一些**BeanDefinitionParser**，而读过spring源码的人都应该了解，spring的启动流程：先根据xml生成beanDefinition，然后再根据beanDefinition生成Bean并放到一个concurentHashMap中。那么我们直接看DubboNamespaceHandler中注册的DubboBeanDefinitionParser，这里有这么一行代码：<br/>
@@ -156,7 +156,7 @@ getExchanger方法实际上调用的是**ExtensionLoader**的相关方法，这�
 
 ```
 public ExchangeServer bind(URL url, ExchangeHandler handler) throws RemotingException {
-        return new HeaderExchangeServer(Transporters.bind(url, new DecodeHandler(new HeaderExchangeHandler(handler))));
+	return new HeaderExchangeServer(Transporters.bind(url, new DecodeHandler(new HeaderExchangeHandler(handler))));
 }
 ```
 可以看到Server与Client实例均是在这里创建的，HeaderExchangeServer需要一个Server类型的参数，来自Transporters.bind()：<br/>
