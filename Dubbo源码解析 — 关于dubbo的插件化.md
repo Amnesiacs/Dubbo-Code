@@ -38,6 +38,7 @@ return loader;
 ```
 我们继续看一下ExtensionLoader声明的方法：<br/>
 ![Alt text](./1486781235938.png)
+<br/>
 我们可以看到声明的方法可以归为几类，分别是*activate extension*、*adaptive extension*、*default extension*、*get extension by name*以及*supported extension*。可以发现activate extension都需要传入url参数，这里涉及到Activate注解，下面讲解一下这个注解。<br/>
 
 ##### Activate注解
@@ -47,7 +48,7 @@ return loader;
 仔细的同学还会发现在ValidationFilter中的Activate注解还有一个参数order，这是表示一种排序规则。因为一个接口的实现有多种，返回的结果是一个列表，如果不指定排序规则，那么可能列表的排序不可控，为了实现这个所以添加了order属性用来控制排序，其中order的值越大，那么该扩展实现排序就越靠前。除了通过order来控制排序，还有before和after来配置当前扩展的位置，before和after配置的值是扩展的别名（扩展实现的别名是在上面第一段代码中，***等号左边内容（failover、mock等等）***，下面出现的别名均是此内容）：<br/>
 
 ```
-@Activate(group = {Constants.PROVIDER, Constants.CONSUMER})
+Activate(group = {Constants.PROVIDER, Constants.CONSUMER})
 public class MonitorFilter implements Filter {……}
 
 @Activate(group = Constants.PROVIDER)
