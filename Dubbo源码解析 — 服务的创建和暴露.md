@@ -1,3 +1,4 @@
+
 ## Dubbo源码解析 --- 服务的创建和暴露
 ----------
 
@@ -89,11 +90,11 @@ for (ProtocolConfig protocolConfig : protocols) {
 	doExportUrlsFor1Protocol(protocolConfig, registryURLs);
 }
 ```
-继续看doExportUrlsFor1Protocol()方法之前，我们会发现，实际上发布服务的是protocol，这里的抽象做的也很精彩，毕竟各个protocol的内容大不相同，protocol后面还会讲解，默认的protocol是dubboProtol。我们会看到如下语句：<br/>
+继续看doExportUrlsFor1Protocol()方法之前，我们会发现，实际上发布服务的是protocol，这里的抽象做的也很精彩，毕竟各个protocol的内容大不相同，protocol后面还会讲解，默认的protocol是dubboProtol。在doExportUrlsFor1Protocol中，我们会看到如下语句：<br/>
 
 ```
 ...
-	Invoker<?> invoker = proxyFactory.getInvoker(ref, (Class)interfaceClass, url);
+Invoker<?> invoker = proxyFactory.getInvoker(ref, (Class)interfaceClass, url);
 Exporter<?> exporter = protocol.export(invoker);
 exporters.add(exporter);
 ...

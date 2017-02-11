@@ -1,8 +1,9 @@
-<!DOCTYPE html><html><head><title>Dubbo源码解析 — 服务的创建和暴露</title><meta charset='utf-8'><link href='https://dn-maxiang.qbox.me/res-min/themes/marxico.css' rel='stylesheet'><style></style></head><body><div id='preview-contents' class='note-content'>
+<!DOCTYPE html><html><head><title>Dubbo源码解析 — 服务的创建和暴露</title><meta charset='utf-8'><link href='https://dn-maxiang.qbox.me/res-min/themes/marxico.css' rel='stylesheet'><style>
+.note-content  {font-family: "Helvetica Neue", Arial, "Hiragino Sans GB", STHeiti, "Microsoft YaHei", "WenQuanYi Micro Hei", SimSun, Song, sans-serif;}
+
+</style></head><body><div id='preview-contents' class='note-content'>
                         
                     
-
-
 
 <h2 id="dubbo源码解析-服务的创建和暴露">Dubbo源码解析 — 服务的创建和暴露</h2>
 
@@ -71,11 +72,9 @@ export是ServiceConfig中的方法，而ServiceBean继承自ServiceConfig（这�
 
 <pre class="prettyprint hljs-dark"><code class="hljs dart"><span class="hljs-comment">//DUBBO框架整体是基于URL为总线的方式来达到各个模块之间的动态加载，这里也有体现，后面我们在dubbo的插件化中会特别讲解</span><br><span class="hljs-built_in">List</span>&lt;URL&gt; registryURLs = loadRegistries(<span class="hljs-keyword">true</span>);<br><span class="hljs-keyword">for</span> (ProtocolConfig protocolConfig : protocols) {<br>    doExportUrlsFor1Protocol(protocolConfig, registryURLs);<br>}<br></code></pre>
 
-<p>继续看doExportUrlsFor1Protocol()方法之前，我们会发现，实际上发布服务的是protocol，这里的抽象做的也很精彩，毕竟各个protocol的内容大不相同，protocol后面还会讲解，默认的protocol是dubboProtol。我们会看到如下语句：<br></p>
+<p>继续看doExportUrlsFor1Protocol()方法之前，我们会发现，实际上发布服务的是protocol，这里的抽象做的也很精彩，毕竟各个protocol的内容大不相同，protocol后面还会讲解，默认的protocol是dubboProtol。在doExportUrlsFor1Protocol中，我们会看到如下语句：<br></p>
 
-
-
-<pre class="prettyprint hljs-dark"><code class="hljs nimrod">...<br>    <span class="hljs-type">Invoker</span>&lt;?&gt; invoker = proxyFactory.getInvoker(<span class="hljs-keyword">ref</span>, (<span class="hljs-type">Class</span>)interfaceClass, url);<br><span class="hljs-type">Exporter</span>&lt;?&gt; exporter = protocol.<span class="hljs-keyword">export</span>(invoker);<br>exporters.add(exporter);<br>...<br></code></pre>
+<pre class="prettyprint hljs-dark"><code class="hljs nimrod">...<br><span class="hljs-type">Invoker</span>&lt;?&gt; invoker = proxyFactory.getInvoker(<span class="hljs-keyword">ref</span>, (<span class="hljs-type">Class</span>)interfaceClass, url);<br><span class="hljs-type">Exporter</span>&lt;?&gt; exporter = protocol.<span class="hljs-keyword">export</span>(invoker);<br>exporters.add(exporter);<br>...<br></code></pre>
 
 <p>这里我们会发现：<br></p>
 
@@ -90,8 +89,6 @@ export是ServiceConfig中的方法，而ServiceBean继承自ServiceConfig（这�
 <li>Exporter – 暴露服务或取消暴露 <br>
 <br></li>
 </ul>
-
-
 
 <h5 id="protocol发布服务">protocol发布服务</h5>
 
