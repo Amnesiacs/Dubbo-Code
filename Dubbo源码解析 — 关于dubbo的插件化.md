@@ -51,10 +51,10 @@ return loader;
 Activate(group = {Constants.PROVIDER, Constants.CONSUMER})
 public class MonitorFilter implements Filter {……}
 
-@Activate(group = Constants.PROVIDER)
+Activate(group = Constants.PROVIDER)
 public class TimeoutFilter implements Filter {……}
 
-@Activate(group = { Constants.CONSUMER, Constants.PROVIDER }, value = Constants.VALIDATION_KEY, order = 10000)
+Activate(group = { Constants.CONSUMER, Constants.PROVIDER }, value = Constants.VALIDATION_KEY, order = 10000)
 public class ValidationFilter implements Filter {……}
 ```
 
@@ -173,3 +173,9 @@ public class Transporter$Adpative implements com.alibaba.dubbo.remoting.Transpor
 
 #### 总结<br/>
 到此关于Dubbo插件化的内容介绍完了，其实*可以把ExtensionLoader当作是Spring的IOC容器*，只不过IOC容器里面做的事情是帮我们初始化和管理bean，我们可以根据我们需要的bean类型或者bean的id来获取对应的bean实体。*而Dubbo里面的ExtensionLoader同样，只不过它管理的是插件*。同样我们可以根据具体插件实现别名和插件接口来获取我们想要的插件实现。另一个不同点是Spring是通过XML的方式告诉Spring我的bean的实现类全路径，而Dubbo则是通过SPI的方式告诉ExtensionLoader具体实现类信息。<br/>
+
+#### 后记<br/>
+该部分对于源码的解析较少，后面我又看到了一篇插件化介绍的文章不错，这里补充了一些关于代码部分的补充，下图是ExtensionLoader获取一个插件的调用链：<br/>
+![Alt text](./1486882047097.png)
+<br/>
+具体代码部分，有兴趣的同学可以跟着这个调用链看一下代码，比较繁琐，细节很多，不多做介绍了。
