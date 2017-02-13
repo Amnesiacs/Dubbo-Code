@@ -1,0 +1,80 @@
+<!DOCTYPE html><html><head><title>Dubbo源码解析 — filter和listener</title><meta charset='utf-8'><link href='https://dn-maxiang.qbox.me/res-min/themes/marxico.css' rel='stylesheet'><style>
+.note-content  {font-family: "Helvetica Neue", Arial, "Hiragino Sans GB", STHeiti, "Microsoft YaHei", "WenQuanYi Micro Hei", SimSun, Song, sans-serif;}
+
+</style></head><body><div id='preview-contents' class='note-content'>
+                        
+                    
+
+<h2 id="dubbo源码解析-filter和listener">Dubbo源码解析 — filter和listener</h2>
+
+<hr>
+
+
+
+<h5 id="前言">前言<br></h5>
+
+<p>有一句说一句，这个标题的有点标题党的意思，我们在这里并不想给大家讲解filter和listener的概念、实现、功能等等。而是想给大家讲解filter和listener的注入过程，具体filter和listener请大家看一下官方文档，或者可以查看一下dubbo已知扩展点的实现。<br></p>
+
+<h4 id="问题">问题<br></h4>
+
+<p>我们看一下消费方执行流程：<br></p>
+
+<pre class="prettyprint hljs-dark"><code class="hljs brainfuck"><span class="hljs-comment">ReferenceBean</span> <span class="hljs-literal">-</span><span class="hljs-literal">-</span>&gt; <span class="hljs-comment">ReferenceConfig</span> <span class="hljs-literal">-</span><span class="hljs-literal">-</span>&gt;  <span class="hljs-comment">RegistryProtocol</span> <span class="hljs-literal">-</span><span class="hljs-literal">-</span>&gt; <span class="hljs-comment">DubboProtocol</span>  <span class="hljs-literal">-</span><span class="hljs-literal">-</span>&gt;  <span class="hljs-comment">invoker</span>  <span class="hljs-literal">-</span><span class="hljs-literal">-</span>&gt;  <span class="hljs-comment">exporter</span><br></code></pre>
+
+<p>好像每一个环节都没有filter和listener的使用。。。<br></p>
+
+<p>我们还是回忆一下dubbo的spi机制，dubbo根据配置文件，从中拿到对应的扩展点，我们看一下protocol对应的配置文件：<br></p>
+
+<pre class="prettyprint hljs-dark"><code class="hljs stylus"><span class="hljs-attribute">filter</span>=com<span class="hljs-class">.alibaba</span><span class="hljs-class">.dubbo</span><span class="hljs-class">.rpc</span><span class="hljs-class">.protocol</span><span class="hljs-class">.ProtocolFilterWrapper</span><br>listener=com<span class="hljs-class">.alibaba</span><span class="hljs-class">.dubbo</span><span class="hljs-class">.rpc</span><span class="hljs-class">.protocol</span><span class="hljs-class">.ProtocolListenerWrapper</span><br>mock=com<span class="hljs-class">.alibaba</span><span class="hljs-class">.dubbo</span><span class="hljs-class">.rpc</span><span class="hljs-class">.support</span><span class="hljs-class">.MockProtocol</span><br></code></pre>
+
+<p>我们看到了啥？看到了<em>ProtocolFilterWrapper</em>和<em>ProtocolListenerWrapper</em>这两个包装类，这两个即为filter和listener的扩展点。接下来看一下它们是怎么一步一步的被注入到上面的流程里的。<br></p>
+
+<h4 id="分析">分析<br></h4>
+
+<p>在ReferenceConfig类中我们会引用和暴露对应的服务，我们以服务引用为场景来分析，之前提到过，服务提供方在dubboNamespaceHandler中非常重要的类为ServiceBean，对应&lt;dubbo:service ... /&gt;，那么我们很容易联想到，消费方的就是ReferenceBean，看一下这个类的afterPropertiesSet方法：<br></p>
+
+<pre class="prettyprint hljs-dark"><code class="hljs lasso"><span class="hljs-attribute">...</span><br><span class="hljs-built_in">Boolean</span> b = isInit();<br><span class="hljs-keyword">if</span> (b == <span class="hljs-built_in">null</span> <span class="hljs-subst">&amp;&amp;</span> getConsumer() != <span class="hljs-built_in">null</span>) {<br>    b = getConsumer()<span class="hljs-built_in">.</span>isInit();<br>}<br><span class="hljs-keyword">if</span> (b != <span class="hljs-built_in">null</span> <span class="hljs-subst">&amp;&amp;</span> b<span class="hljs-built_in">.</span>booleanValue()) {<br>    <span class="hljs-comment">//注意这里！</span><br>    getObject();<br>}<br></code></pre>
+
+<p>我们看到了getObject方法，点进去，就调用了一个get()，再进入get方法，擦，又调用了init方法，点进去，巴拉巴拉一大堆，我们在其中找到了这么几句关键的代码：<br></p>
+
+<pre class="prettyprint hljs-dark"><code class="hljs actionscript">invoker = refprotocol.refer(interfaceClass, urls.<span class="hljs-keyword">get</span>(<span class="hljs-number">0</span>));<br></code></pre>
+
+<p>invoker就是被这个refprotocol的refer方法搞出来的，这个refprotocol是一个protocol的扩展点，那么这里的refprotocol是引用的Protocol$Adpative，这个类是dubbo的SPI机制动态创建的自适应扩展点，我们在之前的文章中已经介绍过，看一下它的refer方法细节：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs gradle"><span class="hljs-keyword">public</span> com.alibaba.dubbo.rpc.Invoker refer(java.lang.<span class="hljs-keyword">Class</span> arg0, com.alibaba.dubbo.common.URL arg1) <span class="hljs-keyword">throws</span> java.lang.<span class="hljs-keyword">Class</span> {<br><br>    <span class="hljs-keyword">if</span> (arg1 == <span class="hljs-keyword">null</span>)<br>        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalArgumentException(<span class="hljs-string">"url == null"</span>);<br><br>    com.alibaba.dubbo.common.URL url = arg1;<br>    String extName = ( url.getProtocol() == <span class="hljs-keyword">null</span> ? <span class="hljs-string">"dubbo"</span> : url.getProtocol() );<br><br>    <span class="hljs-keyword">if</span>(extName == <span class="hljs-keyword">null</span>) <br>        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalStateException(<span class="hljs-string">"Fail to get extension(com.alibaba.dubbo.rpc.Protocol) name from url("</span> + url.toString() + <span class="hljs-string">") use keys([protocol])"</span>);<br><br>    <span class="hljs-comment">//注意这一行，根据url的协议名称选择对应的扩展点实现</span><br>    com.alibaba.dubbo.rpc.Protocol extension = (com.alibaba.dubbo.rpc.Protocol)ExtensionLoader.getExtensionLoader(com.alibaba.dubbo.rpc.Protocol.<span class="hljs-keyword">class</span>).getExtension(extName);<br><br>    <span class="hljs-keyword">return</span> extension.refer(arg0, arg1);<br>}<br></code></pre>
+
+<p>乍一看，并没有感觉有什么蹊跷，不过在单步调试中就会出现“诡异”的现象（由于该类是动态创建的，所以该方法并不会被单步到，所以为分析带来了一定的干扰），我们得再往回倒一下，之前在dubbo中SPI的基础中曾经分析过ExtensionLoader的源码，但是当时由于了解的不够确实忽略了一些细节。<br></p>
+
+<p>我们再来看一下它的执行流程，在createExtension方法中，找到了突破点：<br></p>
+
+
+
+<pre class="prettyprint hljs-dark"><code class="hljs smali"><span class="hljs-keyword">.</span>..<br>    Set&lt;Class&lt;?&gt;&gt; wrapperClasses = cachedWrapperClasses;<br>   <span class="hljs-instruction"> if </span>(wrapperClasses != null &amp;&amp;<span class="hljs-function"> wrapperClasses.size(</span><span class="hljs-function">)</span> &gt; 0<span class="hljs-function">)</span> {<br>        for<span class="hljs-function"> (</span>Class&lt;?&gt; wrapperClass<span class="hljs-keyword"> :</span> wrapperClasses<span class="hljs-function">)</span> {<br>           <span class="hljs-instruction"> instance </span>=<span class="hljs-function"> injectExtension(</span>(T<span class="hljs-function">)</span>wrapperClass.getConstructor(type<span class="hljs-function">)</span>.newInstance(instance<span class="hljs-function">)</span><span class="hljs-function">)</span>;<br>        }<br>    }<br><span class="hljs-keyword">.</span>..<br></code></pre>
+
+<p>看到这里，有过拦截器和监听器开发经验的就会发现，这个跟常规的监听器拦截器的实现方法吻合，我们看一下cachedWrapperClasses这个到底cache了啥东西。<br></p>
+
+<p>找这个cachedWrapperClasses的方法我使用的是比较暴力的，直接在ExtensionLoader中搜cachedWrapperClasses，发现是在loadFile方法中：<br></p>
+
+<pre class="prettyprint hljs-dark"><code class="hljs monkey">...<br><span class="hljs-keyword">try</span><br>{<br>    //判断是否为wrapper实现<br>    clazz.getConstructor(type);<br>    Set&lt;<span class="hljs-class"><span class="hljs-keyword">Class</span>&lt;?&gt;&gt; <span class="hljs-title">wrappers</span> = <span class="hljs-title">cachedWrapperClasses</span>;</span><br>    <span class="hljs-keyword">if</span> (wrappers == <span class="hljs-literal">null</span>) {<br>        cachedWrapperClasses = <span class="hljs-keyword">new</span> ConcurrentHashSet&lt;<span class="hljs-class"><span class="hljs-keyword">Class</span>&lt;?&gt;&gt;();</span><br>        wrappers = cachedWrapperClasses;<br>    }<br>    wrappers.add(clazz);<br>} <span class="hljs-keyword">catch</span> (NoSuchMethodException e) {<br>    ...<br>}<br>...<br></code></pre>
+
+<p><strong>loadFile的任务就是把别名和解析过以后的类的关系对应上（具体的查看代码结合插件化的实现那一篇）</strong>，供以后的getExtension查找使用。<br></p>
+
+<p>这里有一句非常重要的语句<strong>clazz.getConstructor(type)</strong>，这句话会判断：<br></p>
+
+<p><strong><em>配置文件中定义的扩展点实现是否包含一个带有当前类型的构造方法。</em></strong><br></p>
+
+<p>一定要理解这句话，非常非常非常重要！大家可以看到，这段代码是被try catch语句包住的，这个<strong>NoSuchMethodException就是在clazz.getConstructor中抛出的</strong>，<strong><em>如果这句被执行，说明扩展点的实现里，有一个包含当前类型构造方法的实例，可以确定wrapper！</em></strong><br></p>
+
+
+
+<h4 id="解决问题">解决问题</h4>
+
+<p>我们可以看看ProtocolFilterWrapper的构造函数和方法，就可以发现整个filter chain的入口：<br></p>
+
+<pre class="prettyprint hljs-dark"><code class="hljs swift"><span class="hljs-keyword">public</span> <span class="hljs-type">ProtocolFilterWrapper</span>(<span class="hljs-type">Protocol</span> <span class="hljs-class"><span class="hljs-keyword">protocol</span>)</span>{<br>    <span class="hljs-keyword">if</span> (<span class="hljs-class"><span class="hljs-keyword">protocol</span> == <span class="hljs-title">null</span>) </span>{<br>        <span class="hljs-keyword">throw</span> new <span class="hljs-type">IllegalArgumentException</span>(<span class="hljs-string">"protocol == null"</span>);<br>    }<br>    this.<span class="hljs-keyword">protocol</span> = <span class="hljs-class"><span class="hljs-keyword">protocol</span>;<br>}</span><br></code></pre>
+
+<p>果然有一个含有protocol类型的构造方法。<br></p>
+
+<p>再看refer方法，我们在里面找到了这样一个调用return <strong><em>buildInvokerChain</em></strong>(protocol.refer(type, url), Constants.REFERENCE_FILTER_KEY, Constants.CONSUMER)，看名称就可以明白，我们实际调用的protocol.refer，实际上是调用了一个filter chain（过滤器链），同样，listener的wrapper类似。</p></div></body></html>
